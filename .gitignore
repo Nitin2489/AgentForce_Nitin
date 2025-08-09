@@ -1,2 +1,6 @@
 .env
 venv
+venv/
+__pycache__/
+*.pyc
+d6a499bffa3ec18da64b1c0960607143e9616191
