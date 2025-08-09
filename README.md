@@ -300,12 +300,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/codeforge-ai/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/codeforge-ai/discussions)
-- **Email**: your.email@example.com
+- **Issues**: [GitHub Issues](https://github.com/Nitin2489/AgentForce_Nitin/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Nitin2489/AgentForce_Nitin/discussions)
+- **Email**: unitin438@gmail.com
 
 ---
-
-**Built with ❤️ for the AgentForce Hackathon**
-
-*Transform your code testing with AI-powered test generation!* 
+ 
