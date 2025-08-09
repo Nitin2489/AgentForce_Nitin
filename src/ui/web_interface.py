@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.analyzer import CodeAnalyzer
 from src.agents.code_review_agent import CodeReviewAgent
 from src.agents.test_generator_agent import TestGeneratorAgent
+from src.agents.mock_test_generator import MockTestGeneratorAgent
 from src.agents.refactor_agent import RefactorAgent
 from src.agents.ci_integration_agent import CIIntegrationAgent
 
@@ -40,8 +41,13 @@ def render_sidebar():
         # Load API key from environment
         env_api_key = os.getenv("OPENAI_API_KEY", "")
         
+        # Check if API key is valid (not placeholder and starts with sk-)
+        is_valid_env_key = (env_api_key and 
+                           env_api_key != "your_openai_api_key_here" and 
+                           env_api_key.startswith("sk-"))
+        
         # API Key input - read-only if loaded from environment
-        if env_api_key and env_api_key != "your_openai_api_key_here":
+        if is_valid_env_key:
             st.success("✅ API Key loaded from environment")
             api_key = env_api_key
             st.session_state.api_key = api_key
@@ -67,11 +73,17 @@ def render_sidebar():
             st.info("Demo mode will show sample test cases without using OpenAI API")
             api_key = "demo_mode"
         
+        # Mock AI mode for test generation without API
+        if st.checkbox("🤖 Use Mock AI (No API Required)"):
+            st.info("Mock AI will generate realistic test cases without using OpenAI API")
+            api_key = "mock_ai"
+        
         # Security note
-        if env_api_key and env_api_key != "your_openai_api_key_here":
+        if is_valid_env_key:
             st.info("🔒 API Key is loaded from environment variables (secure)")
         else:
             st.warning("⚠️ For security, consider setting OPENAI_API_KEY in .env file")
+
         
         return api_key
 
@@ -80,48 +92,201 @@ def display_test_results(test_results, analysis_results):
     """Display test generation results"""
     st.success("✅ Test cases generated successfully!")
     
+    # Handle different response structures (API vs Mock)
+    is_mock_response = "raw_response" in test_results and "coverage" in test_results
+    
     # Coverage information
-    coverage = test_results.get("coverage_estimate", {})
+    if is_mock_response:
+        coverage = test_results.get("coverage", {})
+    else:
+        coverage = test_results.get("coverage_estimate", {})
+    
     if coverage:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Estimated Coverage", f"{coverage.get('estimated_coverage', 0):.1f}%")
+            if is_mock_response:
+                st.metric("Estimated Coverage", f"{coverage.get('coverage_percentage', 0):.1f}%")
+            else:
+                st.metric("Estimated Coverage", f"{coverage.get('estimated_coverage', 0):.1f}%")
         with col2:
-            st.metric("Total Functions", coverage.get('total_functions', 0))
+            if is_mock_response:
+                st.metric("Functions Covered", coverage.get('functions_covered', 0))
+            else:
+                st.metric("Total Functions", coverage.get('total_functions', 0))
         with col3:
-            st.metric("Test Functions", coverage.get('test_functions', 0))
+            if is_mock_response:
+                st.metric("Classes Covered", coverage.get('classes_covered', 0))
+            else:
+                st.metric("Test Functions", coverage.get('test_functions', 0))
         with col4:
-            st.metric("Coverage Level", coverage.get('coverage_level', 'unknown').title())
+            if is_mock_response:
+                st.metric("Complexity", coverage.get('complexity', 'Unknown'))
+            else:
+                st.metric("Coverage Level", coverage.get('coverage_level', 'unknown').title())
     
     # Test tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🧪 Unit Tests", "🔗 Integration Tests", "⚠️ Edge Cases", "🔧 Fixtures", "📋 Raw Response"])
     
-    with tab1:
-        if test_results["tests"]["unit_tests"]:
-            st.code(test_results["tests"]["unit_tests"], language="python")
-        else:
-            st.info("No unit tests generated")
+    # Handle mock response structure
+    if is_mock_response:
+        # Mock response has raw_response and test_code
+        test_code = test_results.get("raw_response", "")
+        
+        with tab1:
+            # Extract unit tests from the generated code
+            unit_tests = _extract_test_section(test_code, "Unit Tests")
+            if unit_tests:
+                st.code(unit_tests, language="python")
+            else:
+                st.info("No unit tests generated")
+        
+        with tab2:
+            # Extract integration tests
+            integration_tests = _extract_test_section(test_code, "Integration Tests")
+            if integration_tests:
+                st.code(integration_tests, language="python")
+            else:
+                st.info("No integration tests generated")
+        
+        with tab3:
+            # Extract edge case tests
+            edge_tests = _extract_test_section(test_code, "Edge Case Tests")
+            if edge_tests:
+                st.code(edge_tests, language="python")
+            else:
+                st.info("No edge case tests generated")
+        
+        with tab4:
+            # Extract fixtures
+            fixtures = _extract_test_section(test_code, "Test fixtures")
+            if fixtures:
+                st.code(fixtures, language="python")
+            else:
+                st.info("No fixtures generated")
+        
+        with tab5:
+            st.text(test_code)
     
-    with tab2:
-        if test_results["tests"]["integration_tests"]:
-            st.code(test_results["tests"]["integration_tests"], language="python")
-        else:
-            st.info("No integration tests generated")
+    else:
+        # Original API response structure
+        with tab1:
+            if test_results.get("tests", {}).get("unit_tests"):
+                st.code(test_results["tests"]["unit_tests"], language="python")
+            else:
+                st.info("No unit tests generated")
+        
+        with tab2:
+            if test_results.get("tests", {}).get("integration_tests"):
+                st.code(test_results["tests"]["integration_tests"], language="python")
+            else:
+                st.info("No integration tests generated")
+        
+        with tab3:
+            if test_results.get("tests", {}).get("edge_case_tests"):
+                st.code(test_results["tests"]["edge_case_tests"], language="python")
+            else:
+                st.info("No edge case tests generated")
+        
+        with tab4:
+            if test_results.get("tests", {}).get("fixtures"):
+                st.code(test_results["tests"]["fixtures"], language="python")
+            else:
+                st.info("No fixtures generated")
+        
+        with tab5:
+            st.text(test_results.get("raw_response", "No raw response available"))
+
+
+def _extract_test_section(test_code: str, section_name: str) -> str:
+    """Extract specific test sections from generated code"""
+    lines = test_code.split('\n')
     
-    with tab3:
-        if test_results["tests"]["edge_case_tests"]:
-            st.code(test_results["tests"]["edge_case_tests"], language="python")
-        else:
-            st.info("No edge case tests generated")
+    # For mock generator output, we need to extract based on function patterns
+    if section_name == "Unit Tests":
+        # Extract basic test functions (those with _basic, _with_valid_input, _with_invalid_input)
+        unit_tests = []
+        for i, line in enumerate(lines):
+            if 'def test_' in line and any(pattern in line for pattern in ['_basic', '_with_valid_input', '_with_invalid_input']):
+                # Find the function end
+                func_start = i
+                func_end = i
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip().startswith('def ') and j > i + 1:
+                        func_end = j
+                        break
+                    elif j == len(lines) - 1:
+                        func_end = j + 1
+                        break
+                
+                unit_tests.extend(lines[func_start:func_end])
+                unit_tests.append('')  # Add spacing
+        
+        return '\n'.join(unit_tests)
     
-    with tab4:
-        if test_results["tests"]["fixtures"]:
-            st.code(test_results["tests"]["fixtures"], language="python")
-        else:
-            st.info("No fixtures generated")
+    elif section_name == "Integration Tests":
+        # Extract integration test functions
+        integration_tests = []
+        for i, line in enumerate(lines):
+            if 'def test_' in line and any(pattern in line for pattern in ['integration', 'end_to_end']):
+                # Find the function end
+                func_start = i
+                func_end = i
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip().startswith('def ') and j > i + 1:
+                        func_end = j
+                        break
+                    elif j == len(lines) - 1:
+                        func_end = j + 1
+                        break
+                
+                integration_tests.extend(lines[func_start:func_end])
+                integration_tests.append('')  # Add spacing
+        
+        return '\n'.join(integration_tests)
     
-    with tab5:
-        st.text(test_results.get("raw_response", "No raw response available"))
+    elif section_name == "Edge Case Tests":
+        # Extract edge case test functions
+        edge_tests = []
+        for i, line in enumerate(lines):
+            if 'def test_' in line and any(pattern in line for pattern in ['edge', 'error']):
+                # Find the function end
+                func_start = i
+                func_end = i
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip().startswith('def ') and j > i + 1:
+                        func_end = j
+                        break
+                    elif j == len(lines) - 1:
+                        func_end = j + 1
+                        break
+                
+                edge_tests.extend(lines[func_start:func_end])
+                edge_tests.append('')  # Add spacing
+        
+        return '\n'.join(edge_tests)
+    
+    elif section_name == "Test fixtures":
+        # Extract fixtures
+        fixtures = []
+        for i, line in enumerate(lines):
+            if '@pytest.fixture' in line or 'def sample_data' in line:
+                # Find the function end
+                func_start = i
+                func_end = i
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip().startswith('def ') and j > i + 1:
+                        func_end = j
+                        break
+                    elif j == len(lines) - 1:
+                        func_end = j + 1
+                        break
+                
+                fixtures.extend(lines[func_start:func_end])
+                fixtures.append('')  # Add spacing
+        
+        return '\n'.join(fixtures)
+    
+    return ""
 
 
 def display_review_results(review_results, analysis_results):
@@ -246,6 +411,9 @@ def display_quick_stats(analysis_results):
 
 
 def main():
+    # Load environment variables
+    load_dotenv()
+    
     st.set_page_config(
         page_title="CodeForge AI - Test Case Generator",
         page_icon="🧪",
@@ -262,7 +430,12 @@ def main():
     # Sidebar configuration
     api_key = render_sidebar()
     
-    if not api_key:
+    # Check if API key is valid
+    is_valid_key = (api_key and 
+                   api_key != "your_openai_api_key_here" and 
+                   (api_key.startswith("sk-") or api_key == "demo_mode" or api_key == "mock_ai"))
+    
+    if not is_valid_key:
         st.warning("Please enter your OpenAI API key in the sidebar to continue.")
         return
     
@@ -333,6 +506,7 @@ def main():
                     # Initialize agents
                     analyzer = CodeAnalyzer()
                     test_agent = TestGeneratorAgent(api_key)
+                    mock_test_agent = MockTestGeneratorAgent()  # No API key needed
                     review_agent = CodeReviewAgent(api_key)
                     refactor_agent = RefactorAgent(api_key)
                     ci_agent = CIIntegrationAgent(api_key)
@@ -344,7 +518,7 @@ def main():
                     st.session_state.analysis_results = analysis_results
                     
                     if analysis_mode == "Test Generation":
-                        # Check for demo mode
+                        # Check for demo mode or mock AI mode
                         if api_key == "demo_mode":
                             # Generate demo test results
                             demo_tests = {
@@ -397,8 +571,20 @@ def sample_data():
                                 }
                             }
                             display_test_results(demo_tests, analysis_results)
+                        elif api_key == "mock_ai":
+                            # Use mock test generator directly
+                            st.info("🤖 Using Mock AI Test Generator (No API required)")
+                            mock_test_results = mock_test_agent.generate_tests(
+                                code, language=language, test_framework=test_framework
+                            )
+                            
+                            if mock_test_results["success"]:
+                                st.success("✅ Generated test cases using Mock AI!")
+                                display_test_results(mock_test_results, analysis_results)
+                            else:
+                                st.error(f"Mock test generation failed: {mock_test_results['error']}")
                         else:
-                            # Generate tests with real API
+                            # Try to generate tests with real API first
                             test_results = test_agent.generate_tests(
                                 code, language=language, test_framework=test_framework
                             )
@@ -408,14 +594,18 @@ def sample_data():
                         else:
                             error_msg = test_results['error']
                             if "quota" in error_msg.lower() or "429" in error_msg:
-                                st.error("❌ OpenAI API Quota Exceeded!")
-                                st.warning("""
-                                **Solutions:**
-                                1. **Check your OpenAI billing** at https://platform.openai.com/account/billing
-                                2. **Add payment method** or upgrade your plan
-                                3. **Use a different API key** (check the sidebar option)
-                                4. **Wait for quota reset** (usually monthly)
-                                """)
+                                st.warning("⚠️ OpenAI API Quota Exceeded! Using Mock Test Generator instead...")
+                                
+                                # Use mock test generator as fallback
+                                mock_test_results = mock_test_agent.generate_tests(
+                                    code, language=language, test_framework=test_framework
+                                )
+                                
+                                if mock_test_results["success"]:
+                                    st.success("✅ Generated test cases using Mock AI (No API required)!")
+                                    display_test_results(mock_test_results, analysis_results)
+                                else:
+                                    st.error(f"Mock test generation failed: {mock_test_results['error']}")
                             else:
                                 st.error(f"Test generation failed: {error_msg}")
                     

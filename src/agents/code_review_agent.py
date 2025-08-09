@@ -7,7 +7,7 @@ import os
 from typing import Dict, List, Any, Optional
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 # LLMChain is no longer used, using RunnableSequence instead
 import json
 
